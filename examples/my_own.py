@@ -2,7 +2,8 @@ import random
 
 import sc2
 from sc2 import run_game, maps, Race, Difficulty
-from sc2.constants import NEXUS, PROBE, PYLON, ASSIMILATOR, GATEWAY, CYBERNETICSCORE, STALKER, STARGATE, VOIDRAY
+from sc2.constants import NEXUS, PROBE, PYLON, ASSIMILATOR, GATEWAY, CYBERNETICSCORE, \
+    STALKER, STARGATE, VOIDRAY
 from sc2.player import Bot, Computer
 
 
@@ -54,8 +55,8 @@ class SentdeBot(sc2.BotAI):
                     await self.do(worker.build(ASSIMILATOR, vespene))
 
     async def expand(self):
-        if self.supply_used > (self.units(NEXUS).amount * 35) and self.can_afford(NEXUS) and not self.already_pending(
-                NEXUS):
+        if self.supply_used > (self.units(NEXUS).amount * 35) and self.can_afford(NEXUS) \
+                and not self.already_pending(NEXUS):
             await self.expand_now()
 
     async def offensive_buildings(self):
@@ -71,13 +72,15 @@ class SentdeBot(sc2.BotAI):
                 if self.units(STARGATE).amount == 0:
                     if self.can_afford(STARGATE) and not self.already_pending(STARGATE):
                         await self.build(STARGATE, near=pylon)
-            elif self.minerals > 600:
-                print('over 600 minerals')
-                if self.units(GATEWAY).amount > self.units(STARGATE).amount:
-                    await self.build_gateway(pylon)
+
+            if self.minerals > 500 and self.vespene > 200:
+                if self.units(GATEWAY).amount < self.units(STARGATE).amount:
+                    if not self.already_pending(GATEWAY):
+                        await self.build_gateway(pylon)
                 else:
                     if self.can_afford(STARGATE):
-                        await self.build(STARGATE, near=pylon)
+                        if not self.already_pending(STARGATE):
+                            await self.build(STARGATE, near=pylon)
 
     async def build_gateway(self, pylon):
         if self.can_afford(GATEWAY):
@@ -85,38 +88,49 @@ class SentdeBot(sc2.BotAI):
 
     async def build_army(self):
         if self.units(CYBERNETICSCORE).ready:
+            if not self.units(STARGATE).ready:
+                for gateway in self.units(GATEWAY).ready.noqueue:
+                    if self.can_afford(STALKER) and self.supply_left > 1:
+                        await self.do(gateway.train(STALKER))
             for stargate in self.units(STARGATE).ready.noqueue:
                 if self.can_afford(VOIDRAY) and self.supply_left > 1:
                     await self.do(stargate.train(VOIDRAY))
-            for gateway in self.units(GATEWAY).ready.noqueue:
-                if self.units(STARGATE).amount > 0 and \
-                        not self.units(STALKER).amount > self.units(VOIDRAY).amount + 5:
+
+            if self.units(STARGATE).noqueue.amount == 0:
+                for gateway in self.units(GATEWAY).ready.noqueue:
                     if self.can_afford(STALKER) and self.supply_left > 1:
                         await self.do(gateway.train(STALKER))
 
-    def find_target(self, state):
-        if len(self.known_enemy_units) > 0:
+    def find_target(self):
+        if self.known_enemy_units.amount > 0:
             return random.choice(self.known_enemy_units)
-        elif len(self.known_enemy_structures) > 0:
+        elif self.known_enemy_structures.amount > 0:
             return random.choice(self.known_enemy_structures)
         else:
             return self.enemy_start_locations[0]
 
     async def attack(self):
         # {UNIT: [n to fight, n to defend]}
-        aggressive_units = {STALKER: [11, 3],
-                            VOIDRAY: [5, 1]}
+        aggressive_units = {STALKER: [7, 2],
+                            VOIDRAY: [4, 1]}
+        attacking_unit_count = 0
 
         for UNIT in aggressive_units:
-            if self.units(UNIT).amount > aggressive_units[UNIT][0] and \
-                    self.units(UNIT).amount > aggressive_units[UNIT][1]:
-                for s in self.units(UNIT).idle:
-                    await self.do(s.attack(self.find_target(self.state)))
-
+            if self.units(UNIT).amount > aggressive_units[UNIT][0]:
+                attacking_unit_count = attacking_unit_count + self.units(UNIT).idle.amount
             elif self.units(UNIT).amount > aggressive_units[UNIT][1]:
-                if len(self.known_enemy_units) > 0:
-                    for s in self.units(UNIT).idle:
-                        await self.do(s.attack(random.choice(self.known_enemy_units)))
+                if self.known_enemy_units.amount > 0:
+                    for idle_unit in self.units(UNIT).idle:
+                        await self.do(idle_unit.attack(random.choice(self.known_enemy_units)))
+            else:
+                attacking_unit_count = -5
+
+        if attacking_unit_count > 12:
+            print('Attacking Unit Count')
+            print(attacking_unit_count)
+            for UNIT in aggressive_units:
+                for idle_unit in self.units(UNIT).idle:
+                    await self.do(idle_unit.attack(self.find_target()))
 
 
 run_game(maps.get("AbyssalReefLE"), [
